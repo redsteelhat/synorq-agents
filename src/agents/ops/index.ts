@@ -27,7 +27,7 @@ export function createOpsAgent(config: Config): AgentDefinition {
 
 Sırayla: coolify_overview, uptime_monitors, sentry_issues (hours=24) ve umami_stats (days=1) araçlarını çağır. Sonra raporu şu bölümlerle yaz: Durum özeti (tek cümle), Sunucu ve uygulamalar, Erişilebilirlik, Hatalar, Trafik. Gerekiyorsa sonunda "Yapılacaklar" diye en fazla 3 madde ekle.`;
     },
-    tools: createOpsTools(config),
+    tools: () => createOpsTools(config),
     maxTurns: 12,
     notifyResult: true,
   };

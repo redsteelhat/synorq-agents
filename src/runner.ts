@@ -9,7 +9,6 @@ import type { AgentDefinition } from "./agents/types.js";
 import type { EventKind, RunFinish, RunStore, RunTrigger } from "./db/runs.js";
 import type { Notifier } from "./lib/telegram.js";
 
-const RUN_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_EVENT_CHARS = 20_000;
 
 export type QueryFn = typeof query;
@@ -87,13 +86,15 @@ export function createRunner(deps: RunnerDeps) {
 
     const cwd = join(tmpdir(), "synorq-agents", agent.id);
     await mkdir(cwd, { recursive: true });
+    const timeoutMs = (agent.timeoutMinutes ?? 10) * 60 * 1000;
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), RUN_TIMEOUT_MS);
+    const timer = setTimeout(() => abort.abort(), timeoutMs);
 
-    const server = createSdkMcpServer({ name: agent.id, version: "1.0.0", tools: agent.tools });
+    const tools = agent.tools({ runId });
+    const server = createSdkMcpServer({ name: agent.id, version: "1.0.0", tools });
     try {
       const stream = runQuery({
-        prompt: agent.prompt(),
+        prompt: agent.prompt({ runId }),
         options: {
           systemPrompt: agent.systemPrompt,
           model: deps.model,
@@ -101,7 +102,7 @@ export function createRunner(deps: RunnerDeps) {
           // No built-in tools (no shell, no file access): only the agent's own tools.
           tools: [],
           mcpServers: { [agent.id]: server },
-          allowedTools: agent.tools.map((tool) => `mcp__${agent.id}__${tool.name}`),
+          allowedTools: tools.map((tool) => `mcp__${agent.id}__${tool.name}`),
           permissionMode: "dontAsk",
           settingSources: [],
           persistSession: false,
@@ -137,7 +138,7 @@ export function createRunner(deps: RunnerDeps) {
       }
       return { status: "error", error: "The agent stopped without a result" };
     } catch (error) {
-      const text = abort.signal.aborted ? `Timed out after ${RUN_TIMEOUT_MS / 60_000} minutes` : error instanceof Error ? error.message : String(error);
+      const text = abort.signal.aborted ? `Timed out after ${timeoutMs / 60_000} minutes` : error instanceof Error ? error.message : String(error);
       Sentry.captureException(error, { tags: { agent: agent.id } });
       await record("error", text).catch(() => undefined);
       return { status: "error", error: text };

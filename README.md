@@ -28,6 +28,15 @@ Every assistant message, tool call and tool result is stored in `run_events`; th
 | id | Schedule | What it does |
 |---|---|---|
 | `ops` | 08:00 daily | Reads Coolify, UptimeRobot, Sentry and Umami and sends a short Turkish morning report to Telegram. |
+| `leads` | Monday 08:30 | Finds 50 businesses in central İzmir districts with no, broken or weak websites (Google Places + a website check + optional PageSpeed) and saves them to the lead list at `/leads`. |
+
+### Lead agent notes
+
+- Sectors, search terms and districts live in `src/agents/leads/catalog.ts`.
+- `save_leads` accepts only places returned by `search_places` in the same run; name, phone, address and website always come from Google, never from the model.
+- Website checks go through `safeGet` (`src/lib/safe-fetch.ts`): public addresses only, checked inside the DNS lookup, manual redirects, size and time limits.
+- The dashboard at `/leads` filters by status, sector, district and opportunity, updates status and notes, offers a prefilled WhatsApp link for mobile numbers, and exports CSV (formula-safe, UTF-8 with BOM).
+- Cold outreach to businesses is subject to Turkish commercial messaging rules; check them before sending messages in bulk.
 
 ### Add an agent
 

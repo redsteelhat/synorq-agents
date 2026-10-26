@@ -44,6 +44,10 @@ const schema = z.object({
   UMAMI_USERNAME: optional,
   UMAMI_PASSWORD: optional,
 
+  // Lead agent: Google Places API (New) with Text Search enabled. PageSpeed is optional.
+  GOOGLE_PLACES_API_KEY: optional,
+  GOOGLE_PAGESPEED_API_KEY: optional,
+
   // Runs and their events older than this are deleted every night.
   RUN_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
 });

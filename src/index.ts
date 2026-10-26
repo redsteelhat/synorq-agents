@@ -5,6 +5,7 @@ import { createAgents } from "./agents/index.js";
 import { loadConfig } from "./config.js";
 import { createDb } from "./db/index.js";
 import { migrate } from "./db/migrate.js";
+import { createLeadStore } from "./db/leads.js";
 import { createRunStore } from "./db/runs.js";
 import { createTelegramNotifier } from "./lib/telegram.js";
 import { createRunner } from "./runner.js";
@@ -26,7 +27,8 @@ const interrupted = await store.failInterrupted();
 if (interrupted) console.log(`[runs] marked ${interrupted} interrupted run(s) as failed`);
 
 const notify = createTelegramNotifier(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID);
-const agents = createAgents(config);
+const leads = createLeadStore(sql);
+const agents = createAgents(config, { leads });
 const runner = createRunner({ store, notify, oauthToken: config.CLAUDE_CODE_OAUTH_TOKEN, model: config.AGENT_MODEL, dashboardUrl: process.env.PUBLIC_URL?.replace(/\/+$/, "") });
 
 const scheduler = startScheduler(agents, runner, config.TZ_NAME, async () => {
@@ -37,6 +39,7 @@ const scheduler = startScheduler(agents, runner, config.TZ_NAME, async () => {
 const app = createApp({
   agents,
   store,
+  leads,
   runner,
   scheduler,
   admin: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },

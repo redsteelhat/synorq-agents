@@ -4,15 +4,19 @@ import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 
 import type { AgentDefinition } from "../agents/types.js";
+import { leadStatuses, opportunities, type LeadFilter, type LeadStatus, type LeadStore, type Opportunity } from "../db/leads.js";
 import type { RunStore } from "../db/runs.js";
+import { districts, sectorIds } from "../agents/leads/catalog.js";
+import { leadsCsv } from "./leads.js";
 import { AgentBusyError, type Runner } from "../runner.js";
 import type { Scheduler } from "../scheduler.js";
 import { checkCredentials, createLoginLimiter, endSession, requireSession, safeNext, startSession, type Admin } from "./auth.js";
-import { Dashboard, LoginPage, NotFound, RunPage, RunsPage } from "./views.js";
+import { Dashboard, LeadsPage, LoginPage, NotFound, RunPage, RunsPage } from "./views.js";
 
 export type AppDeps = {
   agents: AgentDefinition[];
   store: RunStore;
+  leads: LeadStore;
   runner: Runner;
   scheduler: Pick<Scheduler, "nextRun">;
   admin: Admin;
@@ -92,6 +96,42 @@ export function createApp(deps: AppDeps) {
     if (!run) return c.html(<NotFound />, 404);
     const events = await deps.store.events(id);
     return c.html(<RunPage run={run} agentName={byId.get(run.agent)?.name ?? run.agent} events={events} />);
+  });
+
+  const leadFilter = (query: (name: string) => string | undefined): LeadFilter => {
+    const pick = <T extends string>(value: string | undefined, allowed: readonly T[]) => (value && (allowed as readonly string[]).includes(value) ? (value as T) : undefined);
+    return {
+      status: pick<LeadStatus>(query("status"), leadStatuses),
+      sector: pick(query("sector"), sectorIds),
+      district: pick(query("district"), districts),
+      opportunity: pick<Opportunity>(query("opportunity"), opportunities),
+    };
+  };
+  const filterQuery = (filter: LeadFilter) =>
+    new URLSearchParams(Object.entries(filter).filter((entry): entry is [string, string] => typeof entry[1] === "string")).toString();
+
+  app.get("/leads", async (c) => {
+    const filter = leadFilter((name) => c.req.query(name));
+    const [leads, counts] = await Promise.all([deps.leads.list({ ...filter, limit: 300 }), deps.leads.counts()]);
+    return c.html(<LeadsPage leads={leads} filter={filter} counts={counts} query={filterQuery(filter)} />);
+  });
+
+  app.get("/leads.csv", async (c) => {
+    const filter = leadFilter((name) => c.req.query(name));
+    const leads = await deps.leads.list({ ...filter, limit: 1000 });
+    const date = new Date().toISOString().slice(0, 10);
+    return c.body(leadsCsv(leads), 200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="synorq-leads-${date}.csv"` });
+  });
+
+  app.post("/leads/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID.test(id)) return c.html(<NotFound />, 404);
+    const form = await c.req.parseBody();
+    const status = typeof form.status === "string" && (leadStatuses as readonly string[]).includes(form.status) ? (form.status as LeadStatus) : undefined;
+    const notes = typeof form.notes === "string" ? form.notes.trim().slice(0, 2000) || null : undefined;
+    if (!(await deps.leads.update(id, { status, notes }))) return c.html(<NotFound />, 404);
+    const back = typeof form.back === "string" && form.back.startsWith("/leads") && !form.back.startsWith("//") ? form.back : "/leads";
+    return c.redirect(back, 303);
   });
 
   app.post("/agents/:id/run", async (c) => {

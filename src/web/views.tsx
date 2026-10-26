@@ -1,7 +1,11 @@
 import type { Child } from "hono/jsx";
 
 import type { AgentDefinition } from "../agents/types.js";
+import { districts, opportunityLabels, sectorIds, sectors, statusLabels } from "../agents/leads/catalog.js";
+import type { Lead, LeadFilter, LeadStatus } from "../db/leads.js";
+import { leadStatuses, opportunities } from "../db/leads.js";
 import type { Run, RunEvent, UsageSummary } from "../db/runs.js";
+import { whatsappLink } from "./leads.js";
 import { formatCost, formatDateTime, formatDuration, formatNumber, statusLabel } from "./format.js";
 
 const css = `
@@ -26,6 +30,16 @@ th { color:var(--muted); font-weight:600; font-size:12px; text-transform:upperca
 button { background:var(--lime); color:#111; border:0; border-radius:8px; padding:7px 14px; font-weight:700; cursor:pointer; font-size:14px; }
 button:disabled { opacity:.5; cursor:not-allowed; }
 button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); padding:5px 12px; font-weight:600; }
+.filters { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin-bottom:16px; }
+.filters label { font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:4px; }
+select, textarea { background:#0d0f0e; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font:inherit; font-size:14px; }
+textarea { width:100%; min-height:54px; resize:vertical; }
+.lead h3 { display:flex; justify-content:space-between; gap:8px; align-items:start; }
+.lead ul { margin:8px 0; padding-left:18px; font-size:14px; }
+.pitch { background:#0d0f0e; border:1px dashed var(--line); border-radius:8px; padding:8px 10px; font-size:14px; margin:8px 0; }
+.score { font-size:13px; font-weight:700; color:#111; background:var(--lime); border-radius:6px; padding:1px 7px; white-space:nowrap; }
+.links { display:flex; gap:12px; flex-wrap:wrap; font-size:14px; margin-top:6px; }
+.badge.opp { color:#6aa9ff; }
 .login { max-width:360px; margin:48px auto; }
 .login label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
 .login input { width:100%; padding:9px 11px; border-radius:8px; border:1px solid var(--line); background:#0d0f0e; color:var(--text); font-size:15px; }
@@ -56,6 +70,7 @@ export function Layout(props: { title: string; refreshSeconds?: number; hideNav?
           <a class="brand" href="/">synorq<span>.</span>agents</a>
           <a href="/">Agent'lar</a>
           <a href="/runs">Çalıştırmalar</a>
+          <a href="/leads">Lead'ler</a>
           {props.hideNav ? null : (
             <form method="post" action="/logout" style="margin-left:auto">
               <button type="submit" class="ghost">Çıkış</button>
@@ -198,6 +213,73 @@ export function LoginPage(props: { next: string; error?: string }) {
           <button type="submit">Giriş</button>
         </form>
       </div>
+    </Layout>
+  );
+}
+
+function Select(props: { name: string; value?: string; options: [string, string][]; empty?: string }) {
+  return (
+    <select name={props.name}>
+      {props.empty ? <option value="">{props.empty}</option> : null}
+      {props.options.map(([value, label]) => (
+        <option value={value} selected={props.value === value}>{label}</option>
+      ))}
+    </select>
+  );
+}
+
+export function LeadsPage(props: { leads: Lead[]; filter: LeadFilter; counts: Record<LeadStatus, number>; query: string }) {
+  const { filter } = props;
+  const back = `/leads${props.query ? `?${props.query}` : ""}`;
+  return (
+    <Layout title="Lead'ler">
+      <h1>Lead'ler</h1>
+      <p class="muted">
+        {leadStatuses.map((status) => `${statusLabels[status]}: ${props.counts[status]}`).join(" · ")}
+      </p>
+      <form class="filters" method="get" action="/leads">
+        <label>Durum<Select name="status" value={filter.status} empty="Hepsi" options={leadStatuses.map((s) => [s, statusLabels[s]])} /></label>
+        <label>Sektör<Select name="sector" value={filter.sector} empty="Hepsi" options={sectorIds.map((s) => [s, sectors[s].label])} /></label>
+        <label>İlçe<Select name="district" value={filter.district} empty="Hepsi" options={districts.map((d) => [d, d])} /></label>
+        <label>Fırsat<Select name="opportunity" value={filter.opportunity} empty="Hepsi" options={opportunities.map((o) => [o, opportunityLabels[o]])} /></label>
+        <button type="submit">Filtrele</button>
+        <a href={`/leads.csv${props.query ? `?${props.query}` : ""}`}>CSV indir</a>
+      </form>
+
+      {props.leads.length === 0 ? <p class="muted">Bu filtrede lead yok.</p> : (
+        <div class="grid">
+          {props.leads.map((lead) => {
+            const wa = whatsappLink(lead.phone, lead.pitch);
+            return (
+              <div class="card lead">
+                <h3><span>{lead.name}</span><span class="score">{lead.score}/10</span></h3>
+                <div class="muted">
+                  {sectors[lead.sector as keyof typeof sectors]?.label ?? lead.sector} · {lead.district} · <span class="badge opp">{opportunityLabels[lead.opportunity]}</span>
+                </div>
+                <div class="muted">
+                  {lead.rating ? `★ ${lead.rating} (${lead.reviews ?? 0} yorum)` : "Puan yok"} · {formatDateTime(lead.created_at)}
+                </div>
+                <div class="links">
+                  {lead.phone ? <a href={`tel:${lead.phone.replace(/\s/g, "")}`}>{lead.phone}</a> : null}
+                  {wa ? <a href={wa} target="_blank" rel="noopener noreferrer">WhatsApp</a> : null}
+                  {lead.maps_url ? <a href={lead.maps_url} target="_blank" rel="noopener noreferrer">Haritada</a> : null}
+                  {lead.website ? <a href={lead.website} target="_blank" rel="noopener noreferrer nofollow">Site</a> : null}
+                </div>
+                <ul>{lead.findings.map((finding) => <li>{finding}</li>)}</ul>
+                {lead.pitch ? <div class="pitch">{lead.pitch}</div> : null}
+                <form method="post" action={`/leads/${lead.id}`}>
+                  <input type="hidden" name="back" value={back} />
+                  <div class="row" style="margin-top:4px">
+                    <Select name="status" value={lead.status} options={leadStatuses.map((s) => [s, statusLabels[s]])} />
+                    <button type="submit">Kaydet</button>
+                  </div>
+                  <textarea name="notes" placeholder="Not" style="margin-top:8px">{lead.notes ?? ""}</textarea>
+                </form>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </Layout>
   );
 }
