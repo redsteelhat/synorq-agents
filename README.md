@@ -4,7 +4,7 @@ Synorq's internal AI agents and the dashboard that watches them.
 
 - **Runtime:** Node 24, TypeScript, [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview).
 - **Storage:** PostgreSQL (runs and every step of every run).
-- **Dashboard:** server-rendered pages at `/`, `/runs`, `/runs/:id`, behind HTTP Basic auth.
+- **Dashboard:** server-rendered pages at `/`, `/runs`, `/runs/:id`, behind a login form (signed, HttpOnly session cookie for 30 days; 5 failed attempts per 15 minutes per client).
 - **Notifications:** Telegram (successful results when an agent asks for it, every failure).
 - **Errors:** Sentry.
 

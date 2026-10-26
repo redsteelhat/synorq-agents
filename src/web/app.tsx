@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { basicAuth } from "hono/basic-auth";
 import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
@@ -8,14 +7,17 @@ import type { AgentDefinition } from "../agents/types.js";
 import type { RunStore } from "../db/runs.js";
 import { AgentBusyError, type Runner } from "../runner.js";
 import type { Scheduler } from "../scheduler.js";
-import { Dashboard, NotFound, RunPage, RunsPage } from "./views.js";
+import { checkCredentials, createLoginLimiter, endSession, requireSession, safeNext, startSession, type Admin } from "./auth.js";
+import { Dashboard, LoginPage, NotFound, RunPage, RunsPage } from "./views.js";
 
 export type AppDeps = {
   agents: AgentDefinition[];
   store: RunStore;
   runner: Runner;
   scheduler: Pick<Scheduler, "nextRun">;
-  admin: { username: string; password: string };
+  admin: Admin;
+  /** Mark the session cookie Secure (true behind HTTPS in production). */
+  secureCookies?: boolean;
   healthcheck: () => Promise<boolean>;
 };
 
@@ -40,8 +42,37 @@ export function createApp(deps: AppDeps) {
     c.header("X-Robots-Tag", "noindex, nofollow");
     c.header("Cache-Control", "no-store");
   });
-  app.use("*", basicAuth({ ...deps.admin, realm: "Synorq Agents" }));
   app.use("*", csrf());
+
+  const secure = deps.secureCookies ?? false;
+  const limiter = createLoginLimiter();
+  const clientKey = (c: { req: { header: (name: string) => string | undefined } }) =>
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("x-real-ip") || "local";
+
+  app.get("/login", (c) => c.html(<LoginPage next={safeNext(c.req.query("next"))} />));
+
+  app.post("/login", async (c) => {
+    const key = clientKey(c);
+    const form = await c.req.parseBody();
+    const next = safeNext(typeof form.next === "string" ? form.next : undefined);
+    if (limiter.blocked(key)) return c.html(<LoginPage next={next} error="Çok fazla deneme. 15 dakika sonra tekrar deneyin." />, 429);
+    const username = typeof form.username === "string" ? form.username.trim() : "";
+    const password = typeof form.password === "string" ? form.password : "";
+    if (!checkCredentials(deps.admin, username, password)) {
+      limiter.fail(key);
+      return c.html(<LoginPage next={next} error="Kullanıcı adı veya şifre yanlış." />, 401);
+    }
+    limiter.reset(key);
+    await startSession(c, deps.admin, secure);
+    return c.redirect(next, 303);
+  });
+
+  app.post("/logout", (c) => {
+    endSession(c, secure);
+    return c.redirect("/login", 303);
+  });
+
+  app.use("*", requireSession(deps.admin, ["/login", "/healthz"]));
 
   app.get("/", async (c) => {
     const [last, day, week, recent] = await Promise.all([deps.store.lastByAgent(), deps.store.usageSince(1), deps.store.usageSince(7), deps.store.list({ limit: 15 })]);

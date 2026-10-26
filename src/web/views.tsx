@@ -25,6 +25,11 @@ th { color:var(--muted); font-weight:600; font-size:12px; text-transform:upperca
 .table-wrap { overflow-x:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
 button { background:var(--lime); color:#111; border:0; border-radius:8px; padding:7px 14px; font-weight:700; cursor:pointer; font-size:14px; }
 button:disabled { opacity:.5; cursor:not-allowed; }
+button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); padding:5px 12px; font-weight:600; }
+.login { max-width:360px; margin:48px auto; }
+.login label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
+.login input { width:100%; padding:9px 11px; border-radius:8px; border:1px solid var(--line); background:#0d0f0e; color:var(--text); font-size:15px; }
+.login button { width:100%; margin-top:18px; padding:10px; }
 .row { display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top:12px; flex-wrap:wrap; }
 .timeline { display:flex; flex-direction:column; gap:10px; }
 .event { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:8px; padding:10px 12px; }
@@ -35,7 +40,7 @@ pre { margin:0; white-space:pre-wrap; word-break:break-word; font:13px/1.45 ui-m
 .error-text { color:var(--red); white-space:pre-wrap; }
 `;
 
-export function Layout(props: { title: string; refreshSeconds?: number; children: Child }) {
+export function Layout(props: { title: string; refreshSeconds?: number; hideNav?: boolean; children: Child }) {
   return (
     <html lang="tr">
       <head>
@@ -51,6 +56,11 @@ export function Layout(props: { title: string; refreshSeconds?: number; children
           <a class="brand" href="/">synorq<span>.</span>agents</a>
           <a href="/">Agent'lar</a>
           <a href="/runs">Çalıştırmalar</a>
+          {props.hideNav ? null : (
+            <form method="post" action="/logout" style="margin-left:auto">
+              <button type="submit" class="ghost">Çıkış</button>
+            </form>
+          )}
         </header>
         <main>{props.children}</main>
       </body>
@@ -169,6 +179,25 @@ export function RunPage(props: { run: Run; agentName: string; events: RunEvent[]
           ))}
         </div>
       )}
+    </Layout>
+  );
+}
+
+export function LoginPage(props: { next: string; error?: string }) {
+  return (
+    <Layout title="Giriş" hideNav>
+      <div class="card login">
+        <h1>Giriş yap</h1>
+        {props.error ? <p class="error-text">{props.error}</p> : null}
+        <form method="post" action="/login">
+          <input type="hidden" name="next" value={props.next} />
+          <label for="username">Kullanıcı adı</label>
+          <input id="username" name="username" autocomplete="username" required autofocus />
+          <label for="password">Şifre</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+          <button type="submit">Giriş</button>
+        </form>
+      </div>
     </Layout>
   );
 }

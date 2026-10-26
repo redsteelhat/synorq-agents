@@ -90,14 +90,28 @@ describe.skipIf(!sql)("runner + store + dashboard", () => {
     expect(await store.isRunning("ops")).toBe(false);
   });
 
-  it("serves the dashboard behind basic auth and starts a run from the button", async () => {
+  async function login(app: ReturnType<typeof createApp>, username: string, password: string) {
+    const body = new URLSearchParams({ username, password, next: "/" });
+    return app.request("http://localhost/login", { method: "POST", body, headers: { Origin: "http://localhost", "Content-Type": "application/x-www-form-urlencoded" } });
+  }
+
+  it("serves the dashboard behind a login and starts a run from the button", async () => {
     const store = createRunStore(sql!);
     const runner = createRunner({ store, notify: async () => undefined, oauthToken: "tok", model: "sonnet", queryFn: fakeQuery(success) });
-    const app = createApp({ agents: [agent], store, runner, scheduler: { nextRun: () => null }, admin: { username: "admin", password: "secret-password-123" }, healthcheck: async () => true });
-    const auth = { Authorization: `Basic ${Buffer.from("admin:secret-password-123").toString("base64")}` };
+    const app = createApp({ agents: [agent], store, runner, scheduler: { nextRun: () => null }, admin: { username: "tarik", password: "secret-password-123" }, healthcheck: async () => true });
 
     expect((await app.request("/healthz")).status).toBe(200);
-    expect((await app.request("/")).status).toBe(401);
+    const anonymous = await app.request("/runs");
+    expect(anonymous.status).toBe(303);
+    expect(anonymous.headers.get("location")).toBe("/login?next=%2Fruns");
+    expect((await app.request("/login")).status).toBe(200);
+
+    expect((await login(app, "tarik", "wrong-password")).status).toBe(401);
+    const ok = await login(app, "tarik", "secret-password-123");
+    expect(ok.status).toBe(303);
+    const cookie = ok.headers.get("set-cookie")!;
+    expect(cookie).toContain("HttpOnly");
+    const auth = { Cookie: cookie.split(";")[0]! };
 
     const home = await app.request("/", { headers: auth });
     expect(home.status).toBe(200);
@@ -118,6 +132,16 @@ describe.skipIf(!sql)("runner + store + dashboard", () => {
     expect(page).toContain("Her şey yolunda.");
     expect(page).toContain("mcp__ops__uptime_monitors");
     expect((await app.request("/runs/not-a-uuid", { headers: auth })).status).toBe(404);
+
+    const forged = await app.request("/", { headers: { Cookie: "synorq_agents_session=9999999999999.fake" } });
+    expect(forged.status).toBe(303);
+  });
+
+  it("locks the login after repeated failures", async () => {
+    const store = createRunStore(sql!);
+    const app = createApp({ agents: [agent], store, runner: createRunner({ store, notify: async () => undefined, model: "sonnet" }), scheduler: { nextRun: () => null }, admin: { username: "tarik", password: "secret-password-123" }, healthcheck: async () => true });
+    for (let i = 0; i < 5; i += 1) expect((await login(app, "tarik", "nope")).status).toBe(401);
+    expect((await login(app, "tarik", "secret-password-123")).status).toBe(429);
   });
 
   it("escapes agent output in the HTML", async () => {
@@ -127,7 +151,8 @@ describe.skipIf(!sql)("runner + store + dashboard", () => {
     const { runId, done } = await runner.start(agent, "manual");
     await done;
     const app = createApp({ agents: [agent], store, runner, scheduler: { nextRun: () => null }, admin: { username: "a", password: "b" }, healthcheck: async () => true });
-    const html = await (await app.request(`/runs/${runId}`, { headers: { Authorization: `Basic ${Buffer.from("a:b").toString("base64")}` } })).text();
+    const cookie = (await login(app, "a", "b")).headers.get("set-cookie")!.split(";")[0]!;
+    const html = await (await app.request(`/runs/${runId}`, { headers: { Cookie: cookie } })).text();
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;");
   });

@@ -18,7 +18,7 @@ const schema = z.object({
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
-  // Dashboard sign-in (HTTP Basic over HTTPS).
+  // Dashboard sign-in (login form, signed session cookie).
   ADMIN_USER: z.string().min(1).default("admin"),
   ADMIN_PASSWORD: z.string().min(16, "ADMIN_PASSWORD must be at least 16 characters"),
 

@@ -40,6 +40,7 @@ const app = createApp({
   runner,
   scheduler,
   admin: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },
+  secureCookies: config.NODE_ENV === "production",
   healthcheck: async () => {
     try {
       await sql`select 1`;
